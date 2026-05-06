@@ -1,0 +1,10 @@
+# Excel data file (80+ MB - too large for git)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp

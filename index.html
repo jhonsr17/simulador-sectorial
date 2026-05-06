@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulador Sectorial Colombia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo-group">
+        <span class="logo-icon"><i class="ti ti-chart-dots-3"></i></span>
+        <div>
+          <div class="logo-title">SimSectorial</div>
+          <div class="logo-sub">Colombia · Análisis macroeconómico por CIIU</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <select id="citySelect" class="city-select">
+          <option value="bogota">Bogotá D.C.</option>
+          <option value="medellin">Medellín</option>
+          <option value="cali">Cali</option>
+          <option value="barranquilla">Barranquilla</option>
+          <option value="bucaramanga">Bucaramanga</option>
+          <option value="cartagena">Cartagena</option>
+          <option value="manizales">Manizales</option>
+          <option value="pereira">Pereira</option>
+        </select>
+        <label class="upload-btn" id="uploadLabel">
+          <input type="file" id="xlsxFile" accept=".xlsx,.xls" style="display:none">
+          <i class="ti ti-upload"></i> Cargar Excel
+        </label>
+        <button class="export-btn" onclick="exportPDF()">
+          <i class="ti ti-download"></i> Exportar
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div id="uploadStatus" class="upload-status info" style="display:none"></div>
+
+  <main class="app-layout">
+    <!-- PANEL IZQUIERDO: CONTROLES -->
+    <aside class="controls-side">
+      <div class="scenario-bar">
+        <span class="bar-label">Escenario</span>
+        <div class="scenario-pills">
+          <button class="pill active" data-scenario="base">Base 2025</button>
+          <button class="pill" data-scenario="boom">Auge</button>
+          <button class="pill" data-scenario="recesion">Recesión</button>
+          <button class="pill" data-scenario="inflacion">Alta inflación</button>
+          <button class="pill" data-scenario="dolar">Dólar fuerte</button>
+        </div>
+      </div>
+
+      <div class="ctrl-section">
+        <div class="ctrl-section-title">
+          <i class="ti ti-building-bank"></i> Banco de la República
+        </div>
+        <div class="slider-group" id="sliders-banrep"></div>
+      </div>
+
+      <div class="ctrl-section">
+        <div class="ctrl-section-title">
+          <i class="ti ti-chart-line"></i> Variables sectoriales
+        </div>
+        <div class="slider-group" id="sliders-sector"></div>
+      </div>
+
+      <div class="data-panel" id="excel-info">
+        <div class="data-panel-title"><i class="ti ti-table"></i> Datos Excel</div>
+        <div class="data-panel-body" id="excel-info-body">
+          Sin archivo cargado. Sube tu .xlsx para activar el análisis real por CIIU.
+        </div>
+      </div>
+    </aside>
+
+    <!-- PANEL DERECHO: GRÁFICOS -->
+    <section class="charts-side">
+      <!-- KPIs -->
+      <div class="kpi-row" id="kpiRow"></div>
+
+      <!-- Gráfico principal: impacto sectorial -->
+      <div class="chart-block full-width">
+        <div class="chart-block-header">
+          <div>
+            <div class="chart-block-title">Índice de impacto sectorial</div>
+            <div class="chart-block-sub">Puntaje 0–100 por sector CIIU · actualiza en tiempo real</div>
+          </div>
+          <div class="legend-inline">
+            <span><span class="leg-sq" style="background:#1D9E75"></span>Salud</span>
+            <span><span class="leg-sq" style="background:#378ADD"></span>Atractivo</span>
+            <span><span class="leg-sq" style="background:#EF9F27"></span>Prospectiva</span>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:280px">
+          <canvas id="c-impacto" role="img" aria-label="Índice de impacto por sector CIIU"></canvas>
+        </div>
+      </div>
+
+      <!-- Fila de dos gráficos -->
+      <div class="charts-duo">
+        <div class="chart-block">
+          <div class="chart-block-header">
+            <div>
+              <div class="chart-block-title">Composición PIB regional</div>
+              <div class="chart-block-sub" id="pib-city-label">Bogotá D.C.</div>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:220px">
+            <canvas id="c-pib" role="img" aria-label="Composición PIB regional por sector"></canvas>
+          </div>
+        </div>
+        <div class="chart-block">
+          <div class="chart-block-header">
+            <div>
+              <div class="chart-block-title">Proyección 12 meses</div>
+              <div class="chart-block-sub">Índice de actividad económica regional</div>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:220px">
+            <canvas id="c-trend" role="img" aria-label="Proyección IAE a 12 meses"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fila de dos gráficos más -->
+      <div class="charts-duo">
+        <div class="chart-block">
+          <div class="chart-block-header">
+            <div>
+              <div class="chart-block-title">Empleo formal vs informal</div>
+              <div class="chart-block-sub">Por sector según tasa de desempleo</div>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:220px">
+            <canvas id="c-empleo" role="img" aria-label="Empleo formal vs informal por sector"></canvas>
+          </div>
+        </div>
+        <div class="chart-block">
+          <div class="chart-block-header">
+            <div>
+              <div class="chart-block-title">Crédito y cartera</div>
+              <div class="chart-block-sub">Crecimiento del crédito vs cartera vencida</div>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:220px">
+            <canvas id="c-credito" role="img" aria-label="Crédito empresarial y cartera vencida"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla de indicadores -->
+      <div class="chart-block full-width">
+        <div class="tab-strip">
+          <button class="tab-btn active" data-tab="salud">Salud sectorial</button>
+          <button class="tab-btn" data-tab="atractivo">Atractivo sectorial</button>
+          <button class="tab-btn" data-tab="prospectiva">Prospectiva</button>
+          <button class="tab-btn" data-tab="empresas">Empresas (Excel)</button>
+        </div>
+        <div id="tabContent"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
