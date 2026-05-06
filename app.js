@@ -5,6 +5,202 @@
 const SECTORS = ['Manufactura','Comercio','Financiero','Agropecuario','Inmobiliario','Construcción','Transporte','Servicios','Minería'];
 const CIIU_CODES = ['C','G','K','A','L','F','H','N','B'];
 
+const CIIU_SECTIONS = [
+  { code:'A', name:'Agricultura, ganadería, caza, silvicultura y pesca',
+    desc:'Producción agropecuaria, actividades forestales, pesca y acuicultura',
+    color:'#1D9E75',
+    divisions:[
+      {code:'01', name:'Agricultura, ganadería, caza y actividades de servicios conexas'},
+      {code:'02', name:'Silvicultura y extracción de madera'},
+      {code:'03', name:'Pesca y acuicultura'},
+    ]},
+  { code:'B', name:'Explotación de minas y canteras',
+    desc:'Minería de carbón, petróleo, gas natural, minerales metálicos y no metálicos',
+    color:'#BA7517',
+    divisions:[
+      {code:'05', name:'Extracción de carbón de piedra y lignito'},
+      {code:'06', name:'Extracción de petróleo crudo y gas natural'},
+      {code:'07', name:'Extracción de minerales metalíferos'},
+      {code:'08', name:'Extracción de otras minas y canteras'},
+      {code:'09', name:'Servicios de apoyo para la explotación de minas y canteras'},
+    ]},
+  { code:'C', name:'Industrias manufactureras',
+    desc:'Fabricación de alimentos, textiles, químicos, metales, maquinaria y equipo',
+    color:'#378ADD',
+    divisions:[
+      {code:'10', name:'Elaboración de productos alimenticios'},
+      {code:'11', name:'Elaboración de bebidas'},
+      {code:'12', name:'Elaboración de productos de tabaco'},
+      {code:'13', name:'Fabricación de productos textiles'},
+      {code:'14', name:'Confección de prendas de vestir'},
+      {code:'15', name:'Curtido y recurtido de cueros; fabricación de calzado'},
+      {code:'16', name:'Transformación de la madera y productos de madera y corcho'},
+      {code:'17', name:'Fabricación de papel, cartón y productos derivados'},
+      {code:'18', name:'Actividades de impresión y reproducción de grabaciones'},
+      {code:'19', name:'Coquización y fabricación de productos de la refinación del petróleo'},
+      {code:'20', name:'Fabricación de sustancias y productos químicos'},
+      {code:'21', name:'Fabricación de productos farmacéuticos y sustancias medicinales'},
+      {code:'22', name:'Fabricación de productos de caucho y plástico'},
+      {code:'23', name:'Fabricación de otros productos minerales no metálicos'},
+      {code:'24', name:'Fabricación de productos metalúrgicos básicos'},
+      {code:'25', name:'Fabricación de productos elaborados de metal (excl. maquinaria)'},
+      {code:'26', name:'Fabricación de productos informáticos, electrónicos y ópticos'},
+      {code:'27', name:'Fabricación de aparatos y equipo eléctrico'},
+      {code:'28', name:'Fabricación de maquinaria y equipo n.c.p.'},
+      {code:'29', name:'Fabricación de vehículos automotores, remolques y semirremolques'},
+      {code:'30', name:'Fabricación de otros tipos de equipo de transporte'},
+      {code:'31', name:'Fabricación de muebles, colchones y somieres'},
+      {code:'32', name:'Otras industrias manufactureras'},
+      {code:'33', name:'Mantenimiento y reparación especializada de maquinaria y equipo'},
+    ]},
+  { code:'D', name:'Suministro de electricidad, gas, vapor y aire acondicionado',
+    desc:'Generación, transmisión y distribución de energía eléctrica y gas',
+    color:'#EF9F27',
+    divisions:[
+      {code:'35', name:'Suministro de electricidad, gas, vapor y aire acondicionado'},
+    ]},
+  { code:'E', name:'Suministro de agua y gestión de desechos',
+    desc:'Captación y tratamiento de agua, gestión de residuos y saneamiento ambiental',
+    color:'#5B8DEF',
+    divisions:[
+      {code:'36', name:'Captación, tratamiento y distribución de agua'},
+      {code:'37', name:'Evacuación y tratamiento de aguas residuales'},
+      {code:'38', name:'Recolección, tratamiento y disposición de desechos'},
+      {code:'39', name:'Actividades de saneamiento ambiental y gestión de desechos'},
+    ]},
+  { code:'F', name:'Construcción',
+    desc:'Construcción de edificios, obras de ingeniería civil y actividades especializadas',
+    color:'#D85A30',
+    divisions:[
+      {code:'41', name:'Construcción de edificios residenciales y no residenciales'},
+      {code:'42', name:'Obras de ingeniería civil (carreteras, puentes, puertos)'},
+      {code:'43', name:'Actividades especializadas para la construcción'},
+    ]},
+  { code:'G', name:'Comercio al por mayor y al por menor',
+    desc:'Comercio de vehículos, distribución mayorista y venta minorista (retail)',
+    color:'#7F77DD',
+    divisions:[
+      {code:'45', name:'Comercio y reparación de vehículos automotores y motocicletas'},
+      {code:'46', name:'Comercio al por mayor y en comisión (excl. vehículos)'},
+      {code:'47', name:'Comercio al por menor (retail)'},
+    ]},
+  { code:'H', name:'Transporte y almacenamiento',
+    desc:'Transporte terrestre, acuático, aéreo, almacenamiento y mensajería',
+    color:'#639922',
+    divisions:[
+      {code:'49', name:'Transporte terrestre y transporte por tuberías'},
+      {code:'50', name:'Transporte acuático'},
+      {code:'51', name:'Transporte aéreo'},
+      {code:'52', name:'Almacenamiento y actividades complementarias al transporte'},
+      {code:'53', name:'Correo y servicios de mensajería'},
+    ]},
+  { code:'I', name:'Alojamiento y servicios de comida',
+    desc:'Hoteles, hostales, restaurantes, cafeterías y servicios de alimentación',
+    color:'#D4537E',
+    divisions:[
+      {code:'55', name:'Alojamiento (hoteles, hostales, apartahoteles)'},
+      {code:'56', name:'Actividades de servicios de comidas y bebidas'},
+    ]},
+  { code:'J', name:'Información y comunicaciones',
+    desc:'Edición, telecomunicaciones, software, TI y servicios de información',
+    color:'#5B8DEF',
+    divisions:[
+      {code:'58', name:'Actividades de edición (libros, periódicos, software)'},
+      {code:'59', name:'Actividades cinematográficas, de video y televisión'},
+      {code:'60', name:'Actividades de radiodifusión y televisión'},
+      {code:'61', name:'Telecomunicaciones (telefonía, internet, TV por cable)'},
+      {code:'62', name:'Desarrollo de sistemas informáticos y consultoría en TI'},
+      {code:'63', name:'Actividades de servicios de información y portales web'},
+    ]},
+  { code:'K', name:'Actividades financieras y de seguros',
+    desc:'Banca, seguros, reaseguros, pensiones y actividades financieras auxiliares',
+    color:'#0F6E56',
+    divisions:[
+      {code:'64', name:'Actividades de servicios financieros (excl. seguros y pensiones)'},
+      {code:'65', name:'Seguros, reaseguros y fondos de pensiones'},
+      {code:'66', name:'Actividades auxiliares de las actividades financieras'},
+    ]},
+  { code:'L', name:'Actividades inmobiliarias',
+    desc:'Compraventa, arrendamiento, administración y gestión de propiedades',
+    color:'#9C6EBB',
+    divisions:[
+      {code:'68', name:'Actividades inmobiliarias propias o arrendadas'},
+    ]},
+  { code:'M', name:'Actividades profesionales, científicas y técnicas',
+    desc:'Consultoría, arquitectura, ingeniería, I+D, publicidad y veterinaria',
+    color:'#378ADD',
+    divisions:[
+      {code:'69', name:'Actividades jurídicas y de contabilidad'},
+      {code:'70', name:'Actividades de administración empresarial y consultoría de gestión'},
+      {code:'71', name:'Actividades de arquitectura e ingeniería y pruebas técnicas'},
+      {code:'72', name:'Investigación científica y desarrollo (I+D)'},
+      {code:'73', name:'Publicidad y estudios de mercado'},
+      {code:'74', name:'Otras actividades profesionales, científicas y técnicas'},
+      {code:'75', name:'Actividades veterinarias'},
+    ]},
+  { code:'N', name:'Actividades de servicios administrativos y de apoyo',
+    desc:'Arrendamiento, empleo, turismo, seguridad, limpieza y apoyo empresarial',
+    color:'#888780',
+    divisions:[
+      {code:'77', name:'Actividades de alquiler y arrendamiento de bienes'},
+      {code:'78', name:'Actividades de empleo y selección de personal'},
+      {code:'79', name:'Agencias de viajes, operadores turísticos y reservas'},
+      {code:'80', name:'Actividades de seguridad e investigación privada'},
+      {code:'81', name:'Servicios a edificios y actividades de paisajismo'},
+      {code:'82', name:'Actividades de oficina y apoyo administrativo a empresas'},
+    ]},
+  { code:'O', name:'Administración pública y defensa',
+    desc:'Servicios del Estado, defensa nacional y seguridad social obligatoria',
+    color:'#C44B35',
+    divisions:[
+      {code:'84', name:'Administración pública, defensa y seguridad social de afiliación obligatoria'},
+    ]},
+  { code:'P', name:'Educación',
+    desc:'Educación preescolar, básica, media, superior y formación para el trabajo',
+    color:'#5B8DEF',
+    divisions:[
+      {code:'85', name:'Educación en todos sus niveles y modalidades'},
+    ]},
+  { code:'Q', name:'Atención de la salud humana y asistencia social',
+    desc:'Hospitales, clínicas, atención médica, farmacias y servicios sociales',
+    color:'#E24B4A',
+    divisions:[
+      {code:'86', name:'Actividades de atención de la salud humana'},
+      {code:'87', name:'Actividades de atención en instituciones con alojamiento'},
+      {code:'88', name:'Actividades de asistencia social sin alojamiento'},
+    ]},
+  { code:'R', name:'Actividades artísticas, de entretenimiento y recreación',
+    desc:'Arte, cultura, deportes, espectáculos, juegos y actividades recreativas',
+    color:'#D4537E',
+    divisions:[
+      {code:'90', name:'Actividades creativas, artísticas y de entretenimiento'},
+      {code:'91', name:'Bibliotecas, archivos, museos y actividades culturales'},
+      {code:'92', name:'Actividades de juegos de azar y apuestas'},
+      {code:'93', name:'Actividades deportivas y actividades recreativas y de esparcimiento'},
+    ]},
+  { code:'S', name:'Otras actividades de servicios',
+    desc:'Asociaciones, reparaciones de equipos personales y servicios personales',
+    color:'#888780',
+    divisions:[
+      {code:'94', name:'Actividades de asociaciones (sindicales, gremiales, políticas, religiosas)'},
+      {code:'95', name:'Reparación de computadores, artículos personales y enseres domésticos'},
+      {code:'96', name:'Otras actividades de servicios personales (peluquerías, lavanderías, etc.)'},
+    ]},
+  { code:'T', name:'Actividades de los hogares como empleadores',
+    desc:'Hogares que contratan personal doméstico o producen bienes para uso propio',
+    color:'#888780',
+    divisions:[
+      {code:'97', name:'Hogares individuales como empleadores de personal doméstico'},
+      {code:'98', name:'Actividades no diferenciadas de los hogares como productores para uso propio'},
+    ]},
+  { code:'U', name:'Actividades de organizaciones extraterritoriales',
+    desc:'Organismos internacionales, embajadas y entidades supranacionales',
+    color:'#0F6E56',
+    divisions:[
+      {code:'99', name:'Actividades de organizaciones y entidades extraterritoriales'},
+    ]},
+];
+
 const CITY_LABELS = {
   bogota:'Bogotá D.C.', medellin:'Medellín', cali:'Cali',
   barranquilla:'Barranquilla', bucaramanga:'Bucaramanga',
@@ -359,6 +555,11 @@ function badgeFor(val) {
 function renderTable(tab, scores) {
   const wrap = document.getElementById('tabContent');
 
+  if (tab === 'ciiu') {
+    if (!document.getElementById('ciiu-search')) renderCIIU();
+    return;
+  }
+
   if (tab === 'empresas') {
     if (!excelData || excelData.length === 0) {
       wrap.innerHTML = `<div class="empty-state"><i class="ti ti-table-off" style="font-size:32px;display:block;margin-bottom:8px"></i>Sube tu archivo Excel para ver las empresas reales con indicadores por CIIU.</div>`;
@@ -410,8 +611,94 @@ function renderTable(tab, scores) {
 function switchTab(tab, btn) {
   activeTab = tab;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  const v = getVals();
-  renderTable(tab, computeScores(v));
+  if (tab === 'ciiu') {
+    renderCIIU();
+  } else {
+    renderTable(tab, computeScores(getVals()));
+  }
+}
+
+// ── Explorador CIIU ────────────────────────────────────────────────────────
+function renderCIIU(filter) {
+  const wrap = document.getElementById('tabContent');
+  const q = (filter || '').toLowerCase().trim();
+
+  const filtered = q
+    ? CIIU_SECTIONS.filter(s =>
+        s.code.toLowerCase() === q ||
+        s.name.toLowerCase().includes(q) ||
+        s.desc.toLowerCase().includes(q) ||
+        s.divisions.some(d => d.name.toLowerCase().includes(q) || d.code.startsWith(q))
+      )
+    : CIIU_SECTIONS;
+
+  wrap.innerHTML = `
+    <div class="ciiu-browser">
+      <div class="ciiu-search-wrap">
+        <i class="ti ti-search ciiu-search-icon"></i>
+        <input type="text" id="ciiu-search" class="ciiu-search-input"
+          placeholder="Buscar por actividad, sector o código (ej: ganadería, 46, K)…"
+          value="${escHtml(filter || '')}">
+      </div>
+      <div class="ciiu-count">${filtered.length} sección${filtered.length !== 1 ? 'es' : ''} · ${filtered.reduce((a,s)=>a+s.divisions.length,0)} divisiones</div>
+      <div class="ciiu-grid">
+        ${filtered.length === 0
+          ? `<div class="empty-state">No se encontraron secciones para "<strong>${escHtml(q)}</strong>"</div>`
+          : filtered.map(s => renderCIIUCard(s, q)).join('')}
+      </div>
+    </div>`;
+
+  document.getElementById('ciiu-search').addEventListener('input', e => renderCIIU(e.target.value));
+
+  if (q && filtered.length <= 4) {
+    filtered.forEach(s => expandCIIU(s.code, true));
+  }
+}
+
+function renderCIIUCard(s, q) {
+  const hl = (text) => {
+    if (!q) return text;
+    const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return text.replace(new RegExp(`(${safe})`, 'gi'), '<mark class="ciiu-hl">$1</mark>');
+  };
+  return `
+    <div class="ciiu-card" id="ciiu-card-${s.code}">
+      <div class="ciiu-card-header" onclick="toggleCIIU('${s.code}')">
+        <span class="ciiu-letter" style="background:${s.color}">${s.code}</span>
+        <div class="ciiu-card-info">
+          <div class="ciiu-card-name">${hl(s.name)}</div>
+          <div class="ciiu-card-desc">${hl(s.desc)}</div>
+        </div>
+        <span class="ciiu-div-count">${s.divisions.length} div.</span>
+        <i class="ti ti-chevron-down ciiu-chevron" id="ciiu-chev-${s.code}"></i>
+      </div>
+      <div class="ciiu-card-body" id="ciiu-body-${s.code}">
+        ${s.divisions.map(d => `
+          <div class="ciiu-division">
+            <span class="ciiu-div-code">${d.code}</span>
+            <span class="ciiu-div-name">${hl(d.name)}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function toggleCIIU(code) {
+  const body = document.getElementById(`ciiu-body-${code}`);
+  const chev = document.getElementById(`ciiu-chev-${code}`);
+  if (!body) return;
+  const open = body.classList.toggle('open');
+  if (chev) chev.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+function expandCIIU(code, forceOpen) {
+  const body = document.getElementById(`ciiu-body-${code}`);
+  const chev = document.getElementById(`ciiu-chev-${code}`);
+  if (!body) return;
+  if (forceOpen) { body.classList.add('open'); if (chev) chev.style.transform = 'rotate(180deg)'; }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Carga Excel ────────────────────────────────────────────────────────────
