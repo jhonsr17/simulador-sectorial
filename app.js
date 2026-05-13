@@ -257,13 +257,15 @@ const SECTOR_WEIGHTS = {
 // ── Estado global ──────────────────────────────────────────────────────────
 let charts = {};
 let excelData = null;
-let excelMeta = { rows:0, sheets:[], ciuuCol:null, saludCol:null, atractivoCol:null, prospectivaCol:null };
+let excelMeta = { rows:0, sheets:[], ciuuCol:null, saludCol:null, atractivoCol:null, prospectivaCol:null, regionCol:null };
 let activeTab = 'salud';
 let excelScores = null; // scores reales del Excel por índice de sector
 let dupontData = null;
 let dupontSheetName = null;
 let financialCols = { activos: null, pasivos: null, patrimonio: null, ingresos: null, costos: null };
 let empresasCiiuFilter = '';
+let empresasRegionFilter = '';
+let excelRegions = [];
 
 // ── Inicialización ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -569,43 +571,82 @@ function renderTable(tab, scores) {
       wrap.innerHTML = `<div class="empty-state"><i class="ti ti-table-off" style="font-size:32px;display:block;margin-bottom:8px"></i>Sube tu archivo Excel para ver las empresas reales con indicadores por CIIU.</div>`;
       return;
     }
-    let ciiuLetters = [];
+    // Construir opciones CIIU: 2 dígitos para códigos numéricos, letra para alfabéticos
+    let ciiuOptions = [];
     if (excelMeta.ciuuCol) {
-      const letSet = new Set();
+      const optSet = new Set();
       excelData.forEach(r => {
-        const v = (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase();
-        if (v >= 'A' && v <= 'Z') letSet.add(v);
+        const v = (r[excelMeta.ciuuCol]||'').toString().trim();
+        if (!v) return;
+        if (/^\d/.test(v)) {
+          optSet.add(v.substring(0, 2)); // ej: "46" para 4620
+        } else {
+          const letter = v.charAt(0).toUpperCase();
+          if (letter >= 'A' && letter <= 'Z') optSet.add(letter);
+        }
       });
-      ciiuLetters = [...letSet].sort();
+      ciiuOptions = [...optSet].sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
     }
-    const filteredData = (empresasCiiuFilter && excelMeta.ciuuCol)
-      ? excelData.filter(r => (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase() === empresasCiiuFilter)
-      : excelData;
+
+    // Filtrar por CIIU y por región
+    let filteredData = excelData;
+    if (empresasCiiuFilter && excelMeta.ciuuCol) {
+      filteredData = filteredData.filter(r =>
+        (r[excelMeta.ciuuCol]||'').toString().trim().startsWith(empresasCiiuFilter)
+      );
+    }
+    if (empresasRegionFilter && excelMeta.regionCol) {
+      filteredData = filteredData.filter(r =>
+        (r[excelMeta.regionCol]||'').toString().trim() === empresasRegionFilter
+      );
+    }
+
     const cols = Object.keys(excelData[0]).slice(0, 12);
     const rows = filteredData.slice(0, 200);
-    const filterBar = excelMeta.ciuuCol ? `
+
+    const ciiuFilterBar = excelMeta.ciuuCol ? `
       <div class="empresas-filter-bar">
         <span class="filter-label-text">CIIU:</span>
         <div class="empresas-ciiu-pills">
-          <button class="pill ${!empresasCiiuFilter?'active':''}" data-filter="">Todos</button>
-          ${ciiuLetters.map(l => {
-            const sec = CIIU_SECTIONS.find(s => s.code === l);
-            return `<button class="pill ${empresasCiiuFilter===l?'active':''}" data-filter="${l}" title="${sec?sec.name:l}">${l}</button>`;
+          <button class="pill ${!empresasCiiuFilter?'active':''}" data-ciiu-filter="">Todos</button>
+          ${ciiuOptions.map(opt => {
+            const sec = CIIU_SECTIONS.find(s => s.code === opt);
+            const tip = sec ? sec.name : opt;
+            return `<button class="pill ${empresasCiiuFilter===opt?'active':''}" data-ciiu-filter="${opt}" title="${escHtml(tip)}">${opt}</button>`;
           }).join('')}
         </div>
       </div>` : '';
+
+    const regionFilterBar = (excelMeta.regionCol && excelRegions.length > 0) ? `
+      <div class="empresas-filter-bar">
+        <span class="filter-label-text">Región:</span>
+        <select class="region-select" id="empresas-region-select">
+          <option value="">Todas</option>
+          ${excelRegions.map(r => `<option value="${escHtml(r)}" ${empresasRegionFilter===r?'selected':''}>${escHtml(r)}</option>`).join('')}
+        </select>
+      </div>` : '';
+
     wrap.innerHTML = `
-      ${filterBar}
+      ${ciiuFilterBar}
+      ${regionFilterBar}
       <div class="table-scroll">
         <table>
           <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
           <tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${r[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>
-      <p style="font-size:11px;color:#9b9a95;margin-top:8px;padding:0 4px">Mostrando ${rows.length} de ${filteredData.length.toLocaleString('es-CO')} registros${empresasCiiuFilter ? ' · CIIU '+empresasCiiuFilter : ''} · ${excelData.length.toLocaleString('es-CO')} total · ${excelMeta.sheets.length} hojas</p>`;
-    wrap.querySelectorAll('[data-filter]').forEach(btn => {
-      btn.addEventListener('click', () => { empresasCiiuFilter = btn.dataset.filter; renderTable('empresas', null); });
+      <p style="font-size:11px;color:#9b9a95;margin-top:8px;padding:0 4px">
+        Mostrando ${rows.length} de ${filteredData.length.toLocaleString('es-CO')} registros
+        ${empresasCiiuFilter ? ' · CIIU '+empresasCiiuFilter : ''}
+        ${empresasRegionFilter ? ' · '+escHtml(empresasRegionFilter) : ''}
+        · ${excelData.length.toLocaleString('es-CO')} total · ${excelMeta.sheets.length} hojas
+      </p>`;
+
+    wrap.querySelectorAll('[data-ciiu-filter]').forEach(btn => {
+      btn.addEventListener('click', () => { empresasCiiuFilter = btn.dataset.ciiuFilter; renderTable('empresas', null); });
     });
+    const regionSel = wrap.querySelector('#empresas-region-select');
+    if (regionSel) regionSel.addEventListener('change', e => { empresasRegionFilter = e.target.value; renderTable('empresas', null); });
     return;
   }
 
@@ -768,10 +809,11 @@ function loadExcel(file) {
       const keys = Object.keys(excelData[0]);
       const find  = (terms) => keys.find(k => terms.some(t => k.toLowerCase().includes(t)));
 
-      excelMeta.ciuuCol        = find(['ciiu','actividad economica','cod actividad','sector']);
+      excelMeta.ciuuCol        = find(['ciiu','actividad economica','cod actividad','codigo actividad','cod_actividad']);
       excelMeta.saludCol       = find(['salud']);
       excelMeta.atractivoCol   = find(['atractiv']);
       excelMeta.prospectivaCol = find(['prospect']);
+      excelMeta.regionCol      = find(['region','departamento','ciudad','municipio','localidad','territorio']);
 
       // Detectar hoja DuPont
       dupontSheetName = wb.SheetNames.find(n =>
@@ -788,6 +830,19 @@ function loadExcel(file) {
       financialCols.patrimonio = findFin(['patrimonio','equity']);
       financialCols.ingresos   = findFin(['ingreso operacional','ingresos operacional','ventas neta','ingreso','ventas']);
       financialCols.costos     = findFin(['costo de venta','costo venta','costos','costo']);
+
+      // Extraer regiones únicas del Excel
+      if (excelMeta.regionCol) {
+        const rSet = new Set();
+        excelData.forEach(r => {
+          const v = (r[excelMeta.regionCol]||'').toString().trim();
+          if (v) rSet.add(v);
+        });
+        excelRegions = [...rSet].sort();
+      } else {
+        excelRegions = [];
+      }
+      empresasRegionFilter = '';
 
       buildExcelScores();
       updateExcelPanel(file.name);

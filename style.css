@@ -624,6 +624,19 @@ tr:hover td { background: var(--bg-subtle); }
   flex-wrap: wrap;
   gap: 5px;
 }
+.region-select {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  max-width: 260px;
+}
+.region-select:focus { border-color: var(--accent); }
 
 /* ── Financial statements ── */
 .fin-kpi-grid {
