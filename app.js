@@ -813,7 +813,10 @@ function loadExcel(file) {
       excelMeta.saludCol       = find(['salud']);
       excelMeta.atractivoCol   = find(['atractiv']);
       excelMeta.prospectivaCol = find(['prospect']);
-      excelMeta.regionCol      = find(['region','departamento','ciudad','municipio','localidad','territorio']);
+      // Buscar primero columnas de región amplia, luego departamento, luego ciudad
+      excelMeta.regionCol = find(['regi','zona','macro','territorio'])
+                         || find(['departamento','dpto'])
+                         || find(['ciudad','municipio','localidad']);
 
       // Detectar hoja DuPont
       dupontSheetName = wb.SheetNames.find(n =>
