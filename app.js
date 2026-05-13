@@ -260,6 +260,10 @@ let excelData = null;
 let excelMeta = { rows:0, sheets:[], ciuuCol:null, saludCol:null, atractivoCol:null, prospectivaCol:null };
 let activeTab = 'salud';
 let excelScores = null; // scores reales del Excel por índice de sector
+let dupontData = null;
+let dupontSheetName = null;
+let financialCols = { activos: null, pasivos: null, patrimonio: null, ingresos: null, costos: null };
+let empresasCiiuFilter = '';
 
 // ── Inicialización ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -565,18 +569,48 @@ function renderTable(tab, scores) {
       wrap.innerHTML = `<div class="empty-state"><i class="ti ti-table-off" style="font-size:32px;display:block;margin-bottom:8px"></i>Sube tu archivo Excel para ver las empresas reales con indicadores por CIIU.</div>`;
       return;
     }
-    const cols = Object.keys(excelData[0]).slice(0, 12); // máx 12 columnas
-    const rows = excelData.slice(0, 100);
+    let ciiuLetters = [];
+    if (excelMeta.ciuuCol) {
+      const letSet = new Set();
+      excelData.forEach(r => {
+        const v = (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase();
+        if (v >= 'A' && v <= 'Z') letSet.add(v);
+      });
+      ciiuLetters = [...letSet].sort();
+    }
+    const filteredData = (empresasCiiuFilter && excelMeta.ciuuCol)
+      ? excelData.filter(r => (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase() === empresasCiiuFilter)
+      : excelData;
+    const cols = Object.keys(excelData[0]).slice(0, 12);
+    const rows = filteredData.slice(0, 200);
+    const filterBar = excelMeta.ciuuCol ? `
+      <div class="empresas-filter-bar">
+        <span class="filter-label-text">CIIU:</span>
+        <div class="empresas-ciiu-pills">
+          <button class="pill ${!empresasCiiuFilter?'active':''}" data-filter="">Todos</button>
+          ${ciiuLetters.map(l => {
+            const sec = CIIU_SECTIONS.find(s => s.code === l);
+            return `<button class="pill ${empresasCiiuFilter===l?'active':''}" data-filter="${l}" title="${sec?sec.name:l}">${l}</button>`;
+          }).join('')}
+        </div>
+      </div>` : '';
     wrap.innerHTML = `
+      ${filterBar}
       <div class="table-scroll">
         <table>
           <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
           <tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${r[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>
-      <p style="font-size:11px;color:#9b9a95;margin-top:8px;padding:0 4px">Mostrando ${rows.length} de ${excelData.length.toLocaleString('es-CO')} registros · ${excelMeta.sheets.length} hojas detectadas</p>`;
+      <p style="font-size:11px;color:#9b9a95;margin-top:8px;padding:0 4px">Mostrando ${rows.length} de ${filteredData.length.toLocaleString('es-CO')} registros${empresasCiiuFilter ? ' · CIIU '+empresasCiiuFilter : ''} · ${excelData.length.toLocaleString('es-CO')} total · ${excelMeta.sheets.length} hojas</p>`;
+    wrap.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => { empresasCiiuFilter = btn.dataset.filter; renderTable('empresas', null); });
+    });
     return;
   }
+
+  if (tab === 'dupont') { renderDupont(); return; }
+  if (tab === 'financiero') { renderFinanciero(); return; }
 
   wrap.innerHTML = `
     <div class="table-scroll">
@@ -613,6 +647,10 @@ function switchTab(tab, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   if (tab === 'ciiu') {
     renderCIIU();
+  } else if (tab === 'dupont') {
+    renderDupont();
+  } else if (tab === 'financiero') {
+    renderFinanciero();
   } else {
     renderTable(tab, computeScores(getVals()));
   }
@@ -735,6 +773,22 @@ function loadExcel(file) {
       excelMeta.atractivoCol   = find(['atractiv']);
       excelMeta.prospectivaCol = find(['prospect']);
 
+      // Detectar hoja DuPont
+      dupontSheetName = wb.SheetNames.find(n =>
+        n.toLowerCase().replace(/[\s\-_]/g,'').includes('dupont')
+      ) || null;
+      dupontData = dupontSheetName
+        ? XLSX.utils.sheet_to_json(wb.Sheets[dupontSheetName], { defval:'', header:1 })
+        : null;
+
+      // Detectar columnas financieras
+      const findFin = (terms) => { for (const t of terms) { const c = keys.find(k => k.toLowerCase().includes(t)); if (c) return c; } return null; };
+      financialCols.activos    = findFin(['activo total','activos total','total activo','activo']);
+      financialCols.pasivos    = findFin(['pasivo total','pasivos total','total pasivo','pasivo']);
+      financialCols.patrimonio = findFin(['patrimonio','equity']);
+      financialCols.ingresos   = findFin(['ingreso operacional','ingresos operacional','ventas neta','ingreso','ventas']);
+      financialCols.costos     = findFin(['costo de venta','costo venta','costos','costo']);
+
       buildExcelScores();
       updateExcelPanel(file.name);
       showStatus('success', `<i class="ti ti-check"></i> ${file.name} cargado · ${excelData.length.toLocaleString('es-CO')} empresas · ${excelMeta.sheets.length} hojas`);
@@ -797,6 +851,7 @@ function updateExcelPanel(filename) {
     Salud: ${check(saludCol)}<br>
     Atractivo: ${check(atractivoCol)}<br>
     Prospectiva: ${check(prospectivaCol)}<br>
+    DuPont: ${dupontSheetName ? `<span style="color:#1D9E75">✓</span> hoja "${dupontSheetName}"` : '<span style="color:#9b9a95">—</span>'}<br>
     ${excelScores ? '<br><span style="color:#1D9E75;font-size:11px">✓ Indicadores reales activos · mezcla 70% Excel + 30% macro</span>' : '<br><span style="color:#BA7517;font-size:11px">⚠ Columnas no detectadas · revisa nombres</span>'}`;
 }
 
@@ -811,4 +866,213 @@ function showStatus(type, msg) {
 // ── Exportar ───────────────────────────────────────────────────────────────
 function exportPDF() {
   window.print();
+}
+
+// ── DuPont ─────────────────────────────────────────────────────────────────
+function renderDupont() {
+  const wrap = document.getElementById('tabContent');
+  if (!excelData) {
+    wrap.innerHTML = `<div class="empty-state"><i class="ti ti-chart-pie-2" style="font-size:32px;display:block;margin-bottom:8px"></i>Sube tu archivo Excel para ver el análisis DuPont.</div>`;
+    return;
+  }
+  if (!dupontData) {
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <i class="ti ti-table-off" style="font-size:32px;display:block;margin-bottom:8px"></i>
+        No se encontró una hoja "dupont" en el archivo.<br>
+        <span style="font-size:11px;color:#9b9a95;margin-top:4px;display:block">Hojas disponibles: ${excelMeta.sheets.join(', ')}</span>
+      </div>`;
+    return;
+  }
+
+  const sections = [];
+  let current = [];
+  dupontData.forEach(row => {
+    const isEmpty = !row || row.length === 0 || row.every(c => c === '' || c === null || c === undefined);
+    if (isEmpty) {
+      if (current.length > 0) { sections.push([...current]); current = []; }
+    } else {
+      current.push(row);
+    }
+  });
+  if (current.length > 0) sections.push(current);
+
+  if (sections.length === 0) {
+    wrap.innerHTML = `<div class="empty-state">La hoja DuPont está vacía o no contiene datos reconocibles.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="dupont-info">
+      <i class="ti ti-chart-pie-2"></i>
+      ${escHtml(dupontSheetName)} · ${sections.length} tabla${sections.length !== 1 ? 's' : ''} detectada${sections.length !== 1 ? 's' : ''}
+    </div>
+    <div class="dupont-sections">
+      ${sections.map((rows, i) => renderDupontSection(rows, i)).join('')}
+    </div>`;
+}
+
+function renderDupontSection(rows, index) {
+  if (!rows || rows.length === 0) return '';
+  const maxCols = Math.max(...rows.map(r => (r||[]).length));
+  if (maxCols === 0) return '';
+  const firstRow = rows[0] || [];
+  const nonEmpty = firstRow.filter(c => c !== '' && c !== null && c !== undefined);
+  const textCount = nonEmpty.filter(c => typeof c === 'string').length;
+  const isHeaderRow = nonEmpty.length > 0 && textCount / nonEmpty.length >= 0.5;
+  const bodyRows = rows.slice(isHeaderRow ? 1 : 0);
+
+  return `
+    <div class="dupont-section">
+      <div class="table-scroll">
+        <table class="dupont-table">
+          ${isHeaderRow ? `<thead><tr>${
+            Array.from({length: maxCols}, (_, ci) => {
+              const cell = firstRow[ci] !== undefined ? firstRow[ci] : '';
+              return `<th>${escHtml(String(cell))}</th>`;
+            }).join('')
+          }</tr></thead>` : ''}
+          <tbody>
+            ${bodyRows.map(row => {
+              const r = row || [];
+              return `<tr>${Array.from({length: maxCols}, (_, ci) => {
+                const cell = r[ci] !== undefined ? r[ci] : '';
+                const isNum = typeof cell === 'number';
+                const formatted = isNum
+                  ? cell.toLocaleString('es-CO', {maximumFractionDigits: 4})
+                  : escHtml(String(cell));
+                return `<td class="${isNum ? 'dupont-num' : ''}">${formatted}</td>`;
+              }).join('')}</tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── Estados Financieros ────────────────────────────────────────────────────
+function renderFinanciero() {
+  const wrap = document.getElementById('tabContent');
+
+  if (!excelData || excelData.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><i class="ti ti-report-money" style="font-size:32px;display:block;margin-bottom:8px"></i>Sube tu archivo Excel para ver los estados financieros.</div>`;
+    return;
+  }
+
+  const { activos, pasivos, patrimonio, ingresos, costos } = financialCols;
+  const hasAny = activos || pasivos || patrimonio || ingresos || costos;
+
+  if (!hasAny) {
+    const allCols = Object.keys(excelData[0]).slice(0, 12);
+    wrap.innerHTML = `
+      <div class="fin-notice">
+        <i class="ti ti-info-circle"></i>
+        <span>No se detectaron columnas financieras automáticamente. Se esperan nombres como:
+        <em>activo total, pasivo total, patrimonio, ingresos operacionales, costo de ventas</em>.</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr>${allCols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+          <tbody>${excelData.slice(0,100).map(r=>`<tr>${allCols.map(c=>`<td>${r[c]??''}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+    return;
+  }
+
+  const parseNum = v => {
+    if (typeof v === 'number') return v;
+    if (!v && v !== 0) return 0;
+    return parseFloat(String(v).replace(/[^0-9.\-]/g,'')) || 0;
+  };
+
+  const fmt = n => {
+    const abs = Math.abs(n);
+    if (abs >= 1e12) return (n/1e12).toFixed(1)+'T';
+    if (abs >= 1e9)  return (n/1e9).toFixed(1)+'B';
+    if (abs >= 1e6)  return (n/1e6).toFixed(1)+'M';
+    if (abs >= 1e3)  return (n/1e3).toFixed(0)+'K';
+    return n.toFixed(0);
+  };
+
+  const sumCol = col => col ? excelData.reduce((a, r) => a + parseNum(r[col]), 0) : null;
+  const totActivos    = sumCol(activos);
+  const totPasivos    = sumCol(pasivos);
+  const totPatrimonio = sumCol(patrimonio);
+  const totIngresos   = sumCol(ingresos);
+  const totCostos     = sumCol(costos);
+
+  const endeudamiento = totActivos && totPasivos ? (totPasivos / totActivos * 100).toFixed(1) : null;
+  const margenBruto   = totIngresos && totIngresos !== 0 ? ((totIngresos - (totCostos||0)) / totIngresos * 100).toFixed(1) : null;
+
+  const kpis = [
+    activos    && { label:'Activos Totales',  value: fmt(totActivos),    color:'#378ADD', icon:'ti-building-bank' },
+    pasivos    && { label:'Pasivos Totales',  value: fmt(totPasivos),    color:'#E24B4A', icon:'ti-arrow-up' },
+    patrimonio && { label:'Patrimonio',       value: fmt(totPatrimonio), color:'#1D9E75', icon:'ti-rosette' },
+    ingresos   && { label:'Ingresos',         value: fmt(totIngresos),   color:'#EF9F27', icon:'ti-trending-up' },
+    costos     && { label:'Costos',           value: fmt(totCostos),     color:'#D85A30', icon:'ti-shopping-cart' },
+    endeudamiento && { label:'Endeudamiento', value: endeudamiento+'%',  color:'#7F77DD', icon:'ti-percentage' },
+    margenBruto   && { label:'Margen Bruto',  value: margenBruto+'%',    color:'#639922', icon:'ti-chart-bar' },
+  ].filter(Boolean);
+
+  let ciiuSummary = [];
+  if (excelMeta.ciuuCol) {
+    const groups = {};
+    excelData.forEach(r => {
+      const letter = (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase();
+      if (letter < 'A' || letter > 'Z') return;
+      if (!groups[letter]) groups[letter] = { n:0, activos:0, pasivos:0, patrimonio:0, ingresos:0, costos:0 };
+      groups[letter].n++;
+      if (activos)    groups[letter].activos    += parseNum(r[activos]);
+      if (pasivos)    groups[letter].pasivos    += parseNum(r[pasivos]);
+      if (patrimonio) groups[letter].patrimonio += parseNum(r[patrimonio]);
+      if (ingresos)   groups[letter].ingresos   += parseNum(r[ingresos]);
+      if (costos)     groups[letter].costos     += parseNum(r[costos]);
+    });
+    ciiuSummary = Object.entries(groups)
+      .sort((a,b) => a[0].localeCompare(b[0]))
+      .map(([code, g]) => ({ code, name:(CIIU_SECTIONS.find(s=>s.code===code)||{}).name||code, ...g }));
+  }
+
+  const activeCols = [
+    activos    && { key:'activos',    label:'Activos' },
+    pasivos    && { key:'pasivos',    label:'Pasivos' },
+    patrimonio && { key:'patrimonio', label:'Patrimonio' },
+    ingresos   && { key:'ingresos',   label:'Ingresos' },
+    costos     && { key:'costos',     label:'Costos' },
+  ].filter(Boolean);
+
+  wrap.innerHTML = `
+    <div class="fin-kpi-grid">
+      ${kpis.map(k => `
+        <div class="fin-kpi-card">
+          <div class="fin-kpi-icon" style="color:${k.color}"><i class="ti ${k.icon}" style="font-size:20px"></i></div>
+          <div class="fin-kpi-body">
+            <div class="fin-kpi-label">${k.label}</div>
+            <div class="fin-kpi-value" style="color:${k.color}">${k.value}</div>
+          </div>
+        </div>`).join('')}
+    </div>
+    ${ciiuSummary.length > 0 ? `
+      <div class="fin-section-title">Resumen por CIIU</div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>CIIU</th>
+              <th>Sector</th>
+              <th>Empresas</th>
+              ${activeCols.map(c=>`<th>${c.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${ciiuSummary.map(row => `
+              <tr>
+                <td class="mono">${row.code}</td>
+                <td style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(row.name)}">${escHtml(row.name)}</td>
+                <td class="mono">${row.n}</td>
+                ${activeCols.map(c=>`<td class="mono">${fmt(row[c.key])}</td>`).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}`;
 }

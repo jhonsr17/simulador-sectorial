@@ -598,3 +598,115 @@ tr:hover td { background: var(--bg-subtle); }
   border-radius: 2px;
   padding: 0 2px;
 }
+
+/* ── Empresas CIIU filter ── */
+.empresas-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.filter-label-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.empresas-ciiu-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* ── Financial statements ── */
+.fin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.fin-kpi-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fin-kpi-icon { flex-shrink: 0; }
+.fin-kpi-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.fin-kpi-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'DM Mono', monospace;
+  letter-spacing: -0.02em;
+}
+.fin-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+.fin-notice {
+  background: var(--blue-light);
+  color: #185FA5;
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 12px;
+  margin-bottom: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* ── DuPont ── */
+.dupont-info {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+  padding: 7px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dupont-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dupont-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.dupont-table { width: 100%; }
+.dupont-table thead tr { background: var(--bg-subtle); }
+.dupont-table th {
+  background: var(--bg-subtle);
+  font-size: 11px;
+  padding: 6px 10px;
+}
+.dupont-num {
+  text-align: right;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
