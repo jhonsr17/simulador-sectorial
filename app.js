@@ -262,7 +262,8 @@ let activeTab = 'salud';
 let excelScores = null; // scores reales del Excel por índice de sector
 let dupontData = null;
 let dupontSheetName = null;
-let financialCols = { activos: null, pasivos: null, patrimonio: null, ingresos: null, costos: null };
+let financialCols = { activos: null, pasivos: null, patrimonio: null, ingresos: null, costos: null, utilidad: null };
+let financialWhatIf = { ingresos: 0, costos: 0 };
 let empresasCiiuFilter = '';
 let empresasRegionFilter = '';
 let excelRegions = [];
@@ -791,12 +792,15 @@ function loadExcel(file) {
       const wb = XLSX.read(e.target.result, { type:'array' });
       excelMeta.sheets = wb.SheetNames;
 
-      // Lee la primera hoja con datos de empresas (busca la que tenga más filas)
+      // Lee la hoja con más filas — usa solo el rango (rápido, no parsea todo)
       let bestSheet = wb.SheetNames[0];
       let bestLen   = 0;
       wb.SheetNames.forEach(name => {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval:'' });
-        if (rows.length > bestLen) { bestLen = rows.length; bestSheet = name; }
+        const ws = wb.Sheets[name];
+        if (!ws || !ws['!ref']) return;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const rowCount = range.e.r - range.s.r;
+        if (rowCount > bestLen) { bestLen = rowCount; bestSheet = name; }
       });
 
       excelData = XLSX.utils.sheet_to_json(wb.Sheets[bestSheet], { defval:'' });
@@ -813,10 +817,17 @@ function loadExcel(file) {
       excelMeta.saludCol       = find(['salud']);
       excelMeta.atractivoCol   = find(['atractiv']);
       excelMeta.prospectivaCol = find(['prospect']);
-      // Buscar primero columnas de región amplia, luego departamento, luego ciudad
+      // Buscar columna de región: por nombre primero, luego detectando valores colombianos
       excelMeta.regionCol = find(['regi','zona','macro','territorio'])
                          || find(['departamento','dpto'])
                          || find(['ciudad','municipio','localidad']);
+      if (!excelMeta.regionCol) {
+        const regVals = ['caribe','andina','pacif','orinoq','amazon','insular','central'];
+        excelMeta.regionCol = keys.find(k => {
+          const sample = excelData.slice(0, Math.min(50, excelData.length));
+          return sample.some(r => regVals.some(rv => (r[k]||'').toString().toLowerCase().includes(rv)));
+        }) || null;
+      }
 
       // Detectar hoja DuPont
       dupontSheetName = wb.SheetNames.find(n =>
@@ -833,6 +844,7 @@ function loadExcel(file) {
       financialCols.patrimonio = findFin(['patrimonio','equity']);
       financialCols.ingresos   = findFin(['ingreso operacional','ingresos operacional','ventas neta','ingreso','ventas']);
       financialCols.costos     = findFin(['costo de venta','costo venta','costos','costo']);
+      financialCols.utilidad   = findFin(['utilidad neta','utilidad operacional','resultado neto','utilidad','ganancia','resultado del ejercicio']);
 
       // Extraer regiones únicas del Excel
       if (excelMeta.regionCol) {
@@ -960,11 +972,29 @@ function renderDupont() {
     return;
   }
 
+  const keyRatios = extractDupontRatios();
+  const ratiosCardHtml = keyRatios.length > 0 ? `
+    <div class="fin-section-title" style="margin-bottom:10px">Índices detectados</div>
+    <div class="dupont-ratios-grid">
+      ${keyRatios.map(r => {
+        const isSmall = Math.abs(r.value) <= 1.5 && r.label.toLowerCase().replace(/[áéíóú]/g, c=>({á:'a',é:'e',í:'i',ó:'o',ú:'u'}[c]||c)).match(/roe|roa|margen|rentab/);
+        const display = isSmall
+          ? (r.value * 100).toFixed(2) + '%'
+          : r.value.toLocaleString('es-CO', {maximumFractionDigits:4});
+        return `<div class="dupont-ratio-card">
+          <div class="dupont-ratio-label">${escHtml(r.label)}</div>
+          <div class="dupont-ratio-value">${display}</div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
   wrap.innerHTML = `
     <div class="dupont-info">
       <i class="ti ti-chart-pie-2"></i>
       ${escHtml(dupontSheetName)} · ${sections.length} tabla${sections.length !== 1 ? 's' : ''} detectada${sections.length !== 1 ? 's' : ''}
     </div>
+    ${ratiosCardHtml}
+    ${keyRatios.length > 0 ? `<div class="fin-section-title" style="margin:14px 0 10px">Tablas completas</div>` : ''}
     <div class="dupont-sections">
       ${sections.map((rows, i) => renderDupontSection(rows, i)).join('')}
     </div>`;
@@ -1008,6 +1038,47 @@ function renderDupontSection(rows, index) {
     </div>`;
 }
 
+// ── Extractor de índices DuPont ────────────────────────────────────────────
+function extractDupontRatios() {
+  if (!dupontData) return [];
+  const terms = ['roe','roa','margen','rentab','liquid','rotac','apalac','solven','endeud','ebitda','utilid','dupont'];
+  const ratios = [];
+  const seen = new Set();
+  dupontData.forEach(row => {
+    if (!row || row.length < 2) return;
+    const label = String(row[0]||'').trim();
+    if (!label || label.length > 80 || seen.has(label.toLowerCase())) return;
+    const norm = label.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    if (!terms.some(t => norm.includes(t))) return;
+    for (let i = 1; i < row.length; i++) {
+      if (typeof row[i] === 'number' && isFinite(row[i]) && row[i] !== 0) {
+        ratios.push({ label, value: row[i] });
+        seen.add(label.toLowerCase());
+        break;
+      }
+    }
+  });
+  return ratios.slice(0, 14);
+}
+
+// ── Helper tarjeta KPI financiera ─────────────────────────────────────────
+function renderFinKpi(k) {
+  const simHtml = k.sim != null ? `
+    <div class="fin-kpi-sim">
+      → ${k.sim}
+      ${k.delta ? `<span class="${k.deltaPos ? 'fin-delta-pos' : 'fin-delta-neg'}">${k.delta}</span>` : ''}
+    </div>` : '';
+  return `
+    <div class="fin-kpi-card">
+      <div class="fin-kpi-icon" style="color:${k.color}"><i class="ti ${k.icon}" style="font-size:20px"></i></div>
+      <div class="fin-kpi-body">
+        <div class="fin-kpi-label">${k.label}</div>
+        <div class="fin-kpi-value" style="color:${k.color}">${k.value}</div>
+        ${simHtml}
+      </div>
+    </div>`;
+}
+
 // ── Estados Financieros ────────────────────────────────────────────────────
 function renderFinanciero() {
   const wrap = document.getElementById('tabContent');
@@ -1017,7 +1088,7 @@ function renderFinanciero() {
     return;
   }
 
-  const { activos, pasivos, patrimonio, ingresos, costos } = financialCols;
+  const { activos, pasivos, patrimonio, ingresos, costos, utilidad } = financialCols;
   const hasAny = activos || pasivos || patrimonio || ingresos || costos;
 
   if (!hasAny) {
@@ -1025,8 +1096,7 @@ function renderFinanciero() {
     wrap.innerHTML = `
       <div class="fin-notice">
         <i class="ti ti-info-circle"></i>
-        <span>No se detectaron columnas financieras automáticamente. Se esperan nombres como:
-        <em>activo total, pasivo total, patrimonio, ingresos operacionales, costo de ventas</em>.</span>
+        <span>No se detectaron columnas financieras. Se esperan: <em>activo total, pasivo total, patrimonio, ingresos operacionales, costo de ventas</em>.</span>
       </div>
       <div class="table-scroll">
         <table>
@@ -1052,43 +1122,121 @@ function renderFinanciero() {
     return n.toFixed(0);
   };
 
+  const sign = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
+
   const sumCol = col => col ? excelData.reduce((a, r) => a + parseNum(r[col]), 0) : null;
-  const totActivos    = sumCol(activos);
-  const totPasivos    = sumCol(pasivos);
-  const totPatrimonio = sumCol(patrimonio);
-  const totIngresos   = sumCol(ingresos);
-  const totCostos     = sumCol(costos);
+  const base = {
+    activos:    sumCol(activos),
+    pasivos:    sumCol(pasivos),
+    patrimonio: sumCol(patrimonio),
+    ingresos:   sumCol(ingresos),
+    costos:     sumCol(costos),
+    utilidad:   sumCol(utilidad),
+  };
 
-  const endeudamiento = totActivos && totPasivos ? (totPasivos / totActivos * 100).toFixed(1) : null;
-  const margenBruto   = totIngresos && totIngresos !== 0 ? ((totIngresos - (totCostos||0)) / totIngresos * 100).toFixed(1) : null;
+  // Aplicar simulación what-if
+  const wi = financialWhatIf;
+  const hasWI = wi.ingresos !== 0 || wi.costos !== 0;
+  const simIng = base.ingresos !== null ? base.ingresos * (1 + wi.ingresos/100) : null;
+  const simCos = base.costos   !== null ? base.costos   * (1 + wi.costos/100)   : null;
 
-  const kpis = [
-    activos    && { label:'Activos Totales',  value: fmt(totActivos),    color:'#378ADD', icon:'ti-building-bank' },
-    pasivos    && { label:'Pasivos Totales',  value: fmt(totPasivos),    color:'#E24B4A', icon:'ti-arrow-up' },
-    patrimonio && { label:'Patrimonio',       value: fmt(totPatrimonio), color:'#1D9E75', icon:'ti-rosette' },
-    ingresos   && { label:'Ingresos',         value: fmt(totIngresos),   color:'#EF9F27', icon:'ti-trending-up' },
-    costos     && { label:'Costos',           value: fmt(totCostos),     color:'#D85A30', icon:'ti-shopping-cart' },
-    endeudamiento && { label:'Endeudamiento', value: endeudamiento+'%',  color:'#7F77DD', icon:'ti-percentage' },
-    margenBruto   && { label:'Margen Bruto',  value: margenBruto+'%',    color:'#639922', icon:'ti-chart-bar' },
+  const calcRatios = (ing, cos, act, pas, pat, util) => ({
+    utilidadBruta: ing !== null && cos !== null ? ing - cos : null,
+    margenBruto:   ing ? ((ing - (cos||0)) / ing * 100) : null,
+    cargaCostos:   ing && cos !== null ? (cos / ing * 100) : null,
+    endeudamiento: act && pas ? (pas / act * 100) : null,
+    apalancamiento: pat && act ? (act / pat) : null,
+    roe: util !== null && pat ? (util / pat * 100) : null,
+    roa: util !== null && act ? (util / act * 100) : null,
+  });
+
+  const r0 = calcRatios(base.ingresos, base.costos, base.activos, base.pasivos, base.patrimonio, base.utilidad);
+  const r1 = hasWI ? calcRatios(simIng, simCos, base.activos, base.pasivos, base.patrimonio, base.utilidad) : r0;
+
+  // Sección simulador
+  const whatIfHtml = (ingresos || costos) ? `
+    <div class="whatif-section">
+      <div class="whatif-title"><i class="ti ti-adjustments-horizontal"></i> Simulador ¿Qué pasa si…?</div>
+      <div class="whatif-sliders">
+        ${ingresos ? `<div class="slider-row">
+          <div class="slider-header">
+            <span class="slider-name">Variación en Ingresos</span>
+            <span class="slider-val" id="fin-lbl-ing">${sign(wi.ingresos)}</span>
+          </div>
+          <input type="range" id="fin-s-ing" min="-50" max="100" step="1" value="${wi.ingresos}">
+        </div>` : ''}
+        ${costos ? `<div class="slider-row">
+          <div class="slider-header">
+            <span class="slider-name">Variación en Costos</span>
+            <span class="slider-val" id="fin-lbl-cos">${sign(wi.costos)}</span>
+          </div>
+          <input type="range" id="fin-s-cos" min="-50" max="100" step="1" value="${wi.costos}">
+        </div>` : ''}
+      </div>
+      ${hasWI ? `<div class="whatif-reset"><button onclick="financialWhatIf={ingresos:0,costos:0};renderFinanciero()"><i class="ti ti-refresh"></i> Resetear</button></div>` : ''}
+    </div>` : '';
+
+  // Tarjetas principales
+  const mainKpis = [
+    activos    && { label:'Activos Totales', value:fmt(base.activos),    color:'#378ADD', icon:'ti-building-bank' },
+    pasivos    && { label:'Pasivos Totales', value:fmt(base.pasivos),    color:'#E24B4A', icon:'ti-arrow-up' },
+    patrimonio && { label:'Patrimonio',      value:fmt(base.patrimonio), color:'#1D9E75', icon:'ti-rosette' },
+    ingresos   && { label:'Ingresos',        value:fmt(base.ingresos),   color:'#EF9F27', icon:'ti-trending-up',
+      ...(hasWI && simIng !== null && { sim:fmt(simIng), delta:sign(wi.ingresos), deltaPos:wi.ingresos>=0 }) },
+    costos     && { label:'Costos',          value:fmt(base.costos),     color:'#D85A30', icon:'ti-shopping-cart',
+      ...(hasWI && simCos !== null && { sim:fmt(simCos), delta:sign(wi.costos), deltaPos:wi.costos<=0 }) },
+    base.utilidad !== null && { label:'Utilidad', value:fmt(base.utilidad), color:base.utilidad>=0?'#1D9E75':'#E24B4A', icon:'ti-cash' },
+    r0.utilidadBruta !== null && !utilidad && { label:'Utilidad Bruta',  value:fmt(r0.utilidadBruta),
+      color:r0.utilidadBruta>=0?'#1D9E75':'#E24B4A', icon:'ti-cash',
+      ...(hasWI && r1.utilidadBruta !== null && { sim:fmt(r1.utilidadBruta),
+        delta: sign(((r1.utilidadBruta - r0.utilidadBruta) / Math.abs(r0.utilidadBruta||1)) * 100),
+        deltaPos: r1.utilidadBruta >= r0.utilidadBruta }) },
   ].filter(Boolean);
 
+  // Tarjetas de ratios
+  const ratioKpis = [
+    r0.margenBruto !== null && { label:'Margen Bruto', value:r0.margenBruto.toFixed(1)+'%',
+      color:r0.margenBruto>=30?'#1D9E75':r0.margenBruto>=10?'#EF9F27':'#E24B4A', icon:'ti-chart-bar',
+      ...(hasWI && r1.margenBruto !== null && { sim:r1.margenBruto.toFixed(1)+'%',
+        delta:sign(r1.margenBruto - r0.margenBruto), deltaPos:r1.margenBruto >= r0.margenBruto }) },
+    r0.cargaCostos !== null && { label:'Carga de Costos', value:r0.cargaCostos.toFixed(1)+'%',
+      color:r0.cargaCostos<=60?'#1D9E75':'#EF9F27', icon:'ti-receipt',
+      ...(hasWI && r1.cargaCostos !== null && { sim:r1.cargaCostos.toFixed(1)+'%',
+        delta:sign(r1.cargaCostos - r0.cargaCostos), deltaPos:r1.cargaCostos <= r0.cargaCostos }) },
+    r0.endeudamiento !== null && { label:'Endeudamiento', value:r0.endeudamiento.toFixed(1)+'%',
+      color:r0.endeudamiento<=50?'#1D9E75':r0.endeudamiento<=70?'#EF9F27':'#E24B4A', icon:'ti-percentage' },
+    r0.apalancamiento !== null && { label:'Apalancamiento', value:r0.apalancamiento.toFixed(2)+'x', color:'#7F77DD', icon:'ti-layers' },
+    r0.roe !== null && { label:'ROE', value:r0.roe.toFixed(2)+'%',
+      color:r0.roe>=10?'#1D9E75':r0.roe>=0?'#EF9F27':'#E24B4A', icon:'ti-star' },
+    r0.roa !== null && { label:'ROA', value:r0.roa.toFixed(2)+'%',
+      color:r0.roa>=5?'#1D9E75':r0.roa>=0?'#EF9F27':'#E24B4A', icon:'ti-target' },
+  ].filter(Boolean);
+
+  // Tabla por CIIU (2 dígitos para numérico)
   let ciiuSummary = [];
   if (excelMeta.ciuuCol) {
     const groups = {};
     excelData.forEach(r => {
-      const letter = (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase();
-      if (letter < 'A' || letter > 'Z') return;
-      if (!groups[letter]) groups[letter] = { n:0, activos:0, pasivos:0, patrimonio:0, ingresos:0, costos:0 };
-      groups[letter].n++;
-      if (activos)    groups[letter].activos    += parseNum(r[activos]);
-      if (pasivos)    groups[letter].pasivos    += parseNum(r[pasivos]);
-      if (patrimonio) groups[letter].patrimonio += parseNum(r[patrimonio]);
-      if (ingresos)   groups[letter].ingresos   += parseNum(r[ingresos]);
-      if (costos)     groups[letter].costos     += parseNum(r[costos]);
+      const v = (r[excelMeta.ciuuCol]||'').toString().trim();
+      const key = /^\d/.test(v) ? v.substring(0,2) : v.charAt(0).toUpperCase();
+      if (!key || key === ' ') return;
+      if (!groups[key]) groups[key] = { n:0, activos:0, pasivos:0, patrimonio:0, ingresos:0, costos:0, utilidad:0 };
+      groups[key].n++;
+      if (activos)    groups[key].activos    += parseNum(r[activos]);
+      if (pasivos)    groups[key].pasivos    += parseNum(r[pasivos]);
+      if (patrimonio) groups[key].patrimonio += parseNum(r[patrimonio]);
+      if (ingresos)   groups[key].ingresos   += parseNum(r[ingresos]);
+      if (costos)     groups[key].costos     += parseNum(r[costos]);
+      if (utilidad)   groups[key].utilidad   += parseNum(r[utilidad]);
     });
     ciiuSummary = Object.entries(groups)
-      .sort((a,b) => a[0].localeCompare(b[0]))
-      .map(([code, g]) => ({ code, name:(CIIU_SECTIONS.find(s=>s.code===code)||{}).name||code, ...g }));
+      .sort((a,b) => a[0].localeCompare(b[0], undefined, {numeric:true}))
+      .map(([code, g]) => {
+        const sec = CIIU_SECTIONS.find(s => s.code === code);
+        const div = !sec ? CIIU_SECTIONS.flatMap(s => s.divisions).find(d => d.code === code) : null;
+        return { code, name:(sec||div||{}).name||code, ...g,
+          margen: g.ingresos ? ((g.ingresos - g.costos) / g.ingresos * 100).toFixed(1)+'%' : '—' };
+      });
   }
 
   const activeCols = [
@@ -1097,40 +1245,36 @@ function renderFinanciero() {
     patrimonio && { key:'patrimonio', label:'Patrimonio' },
     ingresos   && { key:'ingresos',   label:'Ingresos' },
     costos     && { key:'costos',     label:'Costos' },
+    utilidad   && { key:'utilidad',   label:'Utilidad' },
+    (ingresos && costos) && { key:'margen', label:'Margen %' },
   ].filter(Boolean);
 
   wrap.innerHTML = `
-    <div class="fin-kpi-grid">
-      ${kpis.map(k => `
-        <div class="fin-kpi-card">
-          <div class="fin-kpi-icon" style="color:${k.color}"><i class="ti ${k.icon}" style="font-size:20px"></i></div>
-          <div class="fin-kpi-body">
-            <div class="fin-kpi-label">${k.label}</div>
-            <div class="fin-kpi-value" style="color:${k.color}">${k.value}</div>
-          </div>
-        </div>`).join('')}
-    </div>
+    ${whatIfHtml}
+    <div class="fin-section-title">Estado Financiero</div>
+    <div class="fin-kpi-grid">${mainKpis.map(k => renderFinKpi(k)).join('')}</div>
+    ${ratioKpis.length > 0 ? `
+      <div class="fin-section-title" style="margin-top:16px">Indicadores de Rentabilidad y Estructura</div>
+      <div class="fin-kpi-grid">${ratioKpis.map(k => renderFinKpi(k)).join('')}</div>` : ''}
     ${ciiuSummary.length > 0 ? `
-      <div class="fin-section-title">Resumen por CIIU</div>
+      <div class="fin-section-title" style="margin-top:16px">Desglose por CIIU</div>
       <div class="table-scroll">
         <table>
-          <thead>
-            <tr>
-              <th>CIIU</th>
-              <th>Sector</th>
-              <th>Empresas</th>
-              ${activeCols.map(c=>`<th>${c.label}</th>`).join('')}
-            </tr>
-          </thead>
+          <thead><tr><th>Cód.</th><th>Actividad</th><th>#</th>${activeCols.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>
           <tbody>
             ${ciiuSummary.map(row => `
               <tr>
                 <td class="mono">${row.code}</td>
-                <td style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(row.name)}">${escHtml(row.name)}</td>
+                <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(row.name)}">${escHtml(row.name)}</td>
                 <td class="mono">${row.n}</td>
-                ${activeCols.map(c=>`<td class="mono">${fmt(row[c.key])}</td>`).join('')}
+                ${activeCols.map(c=>`<td class="mono">${c.key==='margen'?row.margen:fmt(row[c.key])}</td>`).join('')}
               </tr>`).join('')}
           </tbody>
         </table>
       </div>` : ''}`;
+
+  const sIng = wrap.querySelector('#fin-s-ing');
+  const sCos = wrap.querySelector('#fin-s-cos');
+  if (sIng) sIng.addEventListener('input', e => { financialWhatIf.ingresos = +e.target.value; renderFinanciero(); });
+  if (sCos) sCos.addEventListener('input', e => { financialWhatIf.costos   = +e.target.value; renderFinanciero(); });
 }
