@@ -268,11 +268,45 @@ let empresasCiiuFilter = '';
 let empresasRegionFilter = '';
 let excelRegions = [];
 
+// ── Persistencia de datos Excel ────────────────────────────────────────────
+function saveExcelToStorage(filename) {
+  try {
+    const payload = JSON.stringify({
+      filename, excelData, excelMeta, dupontData,
+      financialCols, excelRegions, excelScores,
+    });
+    if (payload.length < 5_000_000) {
+      localStorage.setItem('simsect_excel', payload);
+    }
+  } catch(e) { /* cuota excedida – ignorar */ }
+}
+
+function restoreExcelFromStorage() {
+  try {
+    const raw = localStorage.getItem('simsect_excel');
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (!p.excelData || p.excelData.length === 0) return;
+    excelData      = p.excelData;
+    excelMeta      = p.excelMeta;
+    dupontData     = p.dupontData;
+    financialCols  = p.financialCols;
+    excelRegions   = p.excelRegions || [];
+    excelScores    = p.excelScores;
+    updateExcelPanel(p.filename);
+    showStatus('info', `<i class="ti ti-history"></i> Datos restaurados: ${p.filename} · ${excelData.length.toLocaleString('es-CO')} empresas`);
+    update();
+  } catch(e) {
+    localStorage.removeItem('simsect_excel');
+  }
+}
+
 // ── Inicialización ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   buildSliders();
   bindEvents();
   loadScenario('base');
+  restoreExcelFromStorage();
 });
 
 function buildSliders() {
@@ -861,6 +895,7 @@ function loadExcel(file) {
 
       buildExcelScores();
       updateExcelPanel(file.name);
+      saveExcelToStorage(file.name);
       showStatus('success', `<i class="ti ti-check"></i> ${file.name} cargado · ${excelData.length.toLocaleString('es-CO')} empresas · ${excelMeta.sheets.length} hojas`);
       update();
 
