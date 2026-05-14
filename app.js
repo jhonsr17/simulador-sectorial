@@ -295,6 +295,7 @@ function restoreExcelFromStorage() {
     excelRegions   = p.excelRegions || [];
     excelScores    = p.excelScores;
     razonesData    = p.razonesData || null;
+    updateCitySelectWithRegions();
     updateExcelPanel(p.filename);
     showStatus('success', `<i class="ti ti-history"></i> Datos cargados: ${p.filename} · ${excelData.length.toLocaleString('es-CO')} empresas`);
     update();
@@ -487,10 +488,37 @@ function renderImpactoChart(scores) {
   });
 }
 
-// ── Gráfico PIB regional ───────────────────────────────────────────────────
-function renderPIBChart(city) {
-  document.getElementById('pib-city-label').textContent = CITY_LABELS[city] || city;
-  const data   = CITY_PIB[city] || CITY_PIB.bogota;
+// ── Distribución sectorial por región (desde Excel) ───────────────────────
+function computeRegionSectors(zona) {
+  if (!excelData || !excelMeta.ciuuCol) return null;
+  // Mapeo: letra CIIU → índice en SECTORS
+  const ciuuToIdx = { C:0, G:1, K:2, A:3, L:4, F:5, H:6, N:7, B:8 };
+  const counts = new Array(9).fill(0);
+  excelData.forEach(r => {
+    if (zona && (r[excelMeta.regionCol]||'').toString().trim() !== zona) return;
+    const letter = (r[excelMeta.ciuuCol]||'').toString().trim().charAt(0).toUpperCase();
+    const idx = ciuuToIdx[letter];
+    if (idx !== undefined) counts[idx]++;
+  });
+  const total = counts.reduce((a,b)=>a+b,0);
+  return total > 0 ? counts.map(c => Math.round(c/total*100)) : null;
+}
+
+function updateCitySelectWithRegions() {
+  if (!excelRegions || excelRegions.length === 0) return;
+  const sel = document.getElementById('citySelect');
+  const current = sel.value;
+  sel.innerHTML = excelRegions.map(r =>
+    `<option value="${escHtml(r)}" ${r===current?'selected':''}>${escHtml(r)}</option>`
+  ).join('');
+}
+
+// ── Gráfico PIB / distribución regional ───────────────────────────────────
+function renderPIBChart(zona) {
+  const excelSectors = computeRegionSectors(zona);
+  const data   = excelSectors || CITY_PIB[zona] || CITY_PIB.bogota;
+  const label  = zona || CITY_LABELS[zona] || zona;
+  document.getElementById('pib-city-label').textContent = label;
   const colors = ['#1D9E75','#378ADD','#EF9F27','#D85A30','#7F77DD','#D4537E','#639922','#888780','#BA7517'];
   const ctx = document.getElementById('c-pib');
   if (charts.pib) charts.pib.destroy();
@@ -906,6 +934,7 @@ function processWorkbook(wb, filename) {
   empresasRegionFilter = '';
   empresasCiiuFilter   = '';
 
+  updateCitySelectWithRegions();
   buildExcelScores();
   updateExcelPanel(filename);
   saveExcelToStorage(filename);
