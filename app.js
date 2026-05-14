@@ -267,15 +267,16 @@ let financialWhatIf = { ingresos: 0, costos: 0 };
 let empresasCiiuFilter = '';
 let empresasRegionFilter = '';
 let excelRegions = [];
+let razonesData = null;
 
 // ── Persistencia de datos Excel ────────────────────────────────────────────
 function saveExcelToStorage(filename) {
   try {
     const payload = JSON.stringify({
       filename, excelData, excelMeta, dupontData,
-      financialCols, excelRegions, excelScores,
+      financialCols, excelRegions, excelScores, razonesData,
     });
-    if (payload.length < 5_000_000) {
+    if (payload.length < 8_000_000) {
       localStorage.setItem('simsect_excel', payload);
     }
   } catch(e) { /* cuota excedida – ignorar */ }
@@ -284,20 +285,23 @@ function saveExcelToStorage(filename) {
 function restoreExcelFromStorage() {
   try {
     const raw = localStorage.getItem('simsect_excel');
-    if (!raw) return;
+    if (!raw) return false;
     const p = JSON.parse(raw);
-    if (!p.excelData || p.excelData.length === 0) return;
+    if (!p.excelData || p.excelData.length === 0) return false;
     excelData      = p.excelData;
     excelMeta      = p.excelMeta;
     dupontData     = p.dupontData;
     financialCols  = p.financialCols;
     excelRegions   = p.excelRegions || [];
     excelScores    = p.excelScores;
+    razonesData    = p.razonesData || null;
     updateExcelPanel(p.filename);
-    showStatus('info', `<i class="ti ti-history"></i> Datos restaurados: ${p.filename} · ${excelData.length.toLocaleString('es-CO')} empresas`);
+    showStatus('success', `<i class="ti ti-history"></i> Datos cargados: ${p.filename} · ${excelData.length.toLocaleString('es-CO')} empresas`);
     update();
+    return true;
   } catch(e) {
     localStorage.removeItem('simsect_excel');
+    return false;
   }
 }
 
@@ -306,7 +310,8 @@ document.addEventListener('DOMContentLoaded', () => {
   buildSliders();
   bindEvents();
   loadScenario('base');
-  restoreExcelFromStorage();
+  const restored = restoreExcelFromStorage();
+  if (!restored) autoLoadExcel();
 });
 
 function buildSliders() {
@@ -606,28 +611,24 @@ function renderTable(tab, scores) {
       wrap.innerHTML = `<div class="empty-state"><i class="ti ti-table-off" style="font-size:32px;display:block;margin-bottom:8px"></i>Sube tu archivo Excel para ver las empresas reales con indicadores por CIIU.</div>`;
       return;
     }
-    // Construir opciones CIIU: 2 dígitos para códigos numéricos, letra para alfabéticos
+    // CIIU en este Excel: "G4620 - Descripción" → extraer letra sección
     let ciiuOptions = [];
     if (excelMeta.ciuuCol) {
-      const optSet = new Set();
+      const letSet = new Set();
       excelData.forEach(r => {
         const v = (r[excelMeta.ciuuCol]||'').toString().trim();
         if (!v) return;
-        if (/^\d/.test(v)) {
-          optSet.add(v.substring(0, 2)); // ej: "46" para 4620
-        } else {
-          const letter = v.charAt(0).toUpperCase();
-          if (letter >= 'A' && letter <= 'Z') optSet.add(letter);
-        }
+        const m = v.match(/^([A-Za-z])/);
+        if (m) letSet.add(m[1].toUpperCase());
       });
-      ciiuOptions = [...optSet].sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
+      ciiuOptions = [...letSet].sort();
     }
 
-    // Filtrar por CIIU y por región
+    // Filtrar por CIIU (primera letra de sección) y por región
     let filteredData = excelData;
     if (empresasCiiuFilter && excelMeta.ciuuCol) {
       filteredData = filteredData.filter(r =>
-        (r[excelMeta.ciuuCol]||'').toString().trim().startsWith(empresasCiiuFilter)
+        (r[excelMeta.ciuuCol]||'').toString().trim().toUpperCase().startsWith(empresasCiiuFilter)
       );
     }
     if (empresasRegionFilter && excelMeta.regionCol) {
@@ -819,91 +820,97 @@ function escHtml(s) {
 function loadExcel(file) {
   if (!file) return;
   showStatus('info', `<i class="ti ti-loader"></i> Leyendo ${file.name}…`);
-
   const reader = new FileReader();
-  reader.onload = function(e) {
-    try {
-      const wb = XLSX.read(e.target.result, { type:'array' });
-      excelMeta.sheets = wb.SheetNames;
-
-      // Lee la hoja con más filas — usa solo el rango (rápido, no parsea todo)
-      let bestSheet = wb.SheetNames[0];
-      let bestLen   = 0;
-      wb.SheetNames.forEach(name => {
-        const ws = wb.Sheets[name];
-        if (!ws || !ws['!ref']) return;
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        const rowCount = range.e.r - range.s.r;
-        if (rowCount > bestLen) { bestLen = rowCount; bestSheet = name; }
-      });
-
-      excelData = XLSX.utils.sheet_to_json(wb.Sheets[bestSheet], { defval:'' });
-
-      if (excelData.length === 0) {
-        showStatus('error', 'El archivo no tiene filas de datos válidas.');
-        return;
-      }
-
-      const keys = Object.keys(excelData[0]);
-      const find  = (terms) => keys.find(k => terms.some(t => k.toLowerCase().includes(t)));
-
-      excelMeta.ciuuCol        = find(['ciiu','actividad economica','cod actividad','codigo actividad','cod_actividad']);
-      excelMeta.saludCol       = find(['salud']);
-      excelMeta.atractivoCol   = find(['atractiv']);
-      excelMeta.prospectivaCol = find(['prospect']);
-      // Buscar columna de región: por nombre primero, luego detectando valores colombianos
-      excelMeta.regionCol = find(['regi','zona','macro','territorio'])
-                         || find(['departamento','dpto'])
-                         || find(['ciudad','municipio','localidad']);
-      if (!excelMeta.regionCol) {
-        const regVals = ['caribe','andina','pacif','orinoq','amazon','insular','central'];
-        excelMeta.regionCol = keys.find(k => {
-          const sample = excelData.slice(0, Math.min(50, excelData.length));
-          return sample.some(r => regVals.some(rv => (r[k]||'').toString().toLowerCase().includes(rv)));
-        }) || null;
-      }
-
-      // Detectar hoja DuPont
-      dupontSheetName = wb.SheetNames.find(n =>
-        n.toLowerCase().replace(/[\s\-_]/g,'').includes('dupont')
-      ) || null;
-      dupontData = dupontSheetName
-        ? XLSX.utils.sheet_to_json(wb.Sheets[dupontSheetName], { defval:'', header:1 })
-        : null;
-
-      // Detectar columnas financieras
-      const findFin = (terms) => { for (const t of terms) { const c = keys.find(k => k.toLowerCase().includes(t)); if (c) return c; } return null; };
-      financialCols.activos    = findFin(['activo total','activos total','total activo','activo']);
-      financialCols.pasivos    = findFin(['pasivo total','pasivos total','total pasivo','pasivo']);
-      financialCols.patrimonio = findFin(['patrimonio','equity']);
-      financialCols.ingresos   = findFin(['ingreso operacional','ingresos operacional','ventas neta','ingreso','ventas']);
-      financialCols.costos     = findFin(['costo de venta','costo venta','costos','costo']);
-      financialCols.utilidad   = findFin(['utilidad neta','utilidad operacional','resultado neto','utilidad','ganancia','resultado del ejercicio']);
-
-      // Extraer regiones únicas del Excel
-      if (excelMeta.regionCol) {
-        const rSet = new Set();
-        excelData.forEach(r => {
-          const v = (r[excelMeta.regionCol]||'').toString().trim();
-          if (v) rSet.add(v);
-        });
-        excelRegions = [...rSet].sort();
-      } else {
-        excelRegions = [];
-      }
-      empresasRegionFilter = '';
-
-      buildExcelScores();
-      updateExcelPanel(file.name);
-      saveExcelToStorage(file.name);
-      showStatus('success', `<i class="ti ti-check"></i> ${file.name} cargado · ${excelData.length.toLocaleString('es-CO')} empresas · ${excelMeta.sheets.length} hojas`);
-      update();
-
-    } catch(err) {
-      showStatus('error', `Error al leer el archivo: ${err.message}`);
-    }
+  reader.onload = e => {
+    try { processWorkbook(XLSX.read(e.target.result, { type:'array' }), file.name); }
+    catch(err) { showStatus('error', `Error al leer el archivo: ${err.message}`); }
   };
   reader.readAsArrayBuffer(file);
+}
+
+async function autoLoadExcel() {
+  const path = './data/Entrega diagnositico SCMVSBNR (version 1).xlsx';
+  showStatus('info', '<i class="ti ti-loader"></i> Cargando datos sectoriales…');
+  try {
+    const resp = await fetch(path);
+    if (!resp.ok) { document.getElementById('uploadStatus').style.display = 'none'; return; }
+    processWorkbook(XLSX.read(await resp.arrayBuffer(), { type:'array' }), 'Diagnóstico Sectorial.xlsx');
+  } catch(e) { document.getElementById('uploadStatus').style.display = 'none'; }
+}
+
+function processWorkbook(wb, filename) {
+  excelMeta.sheets = wb.SheetNames;
+
+  // Preferir hoja 'Base de datos', si no la más grande
+  let mainSheet = wb.SheetNames.find(n => n.toLowerCase().includes('base de dato')) || null;
+  if (!mainSheet) {
+    let bestLen = 0;
+    wb.SheetNames.forEach(name => {
+      const ws = wb.Sheets[name];
+      if (!ws || !ws['!ref']) return;
+      const rc = XLSX.utils.decode_range(ws['!ref']).e.r;
+      if (rc > bestLen) { bestLen = rc; mainSheet = name; }
+    });
+  }
+
+  excelData = XLSX.utils.sheet_to_json(wb.Sheets[mainSheet], { defval:'' });
+  if (excelData.length === 0) { showStatus('error', 'No se encontraron datos.'); return; }
+
+  const keys = Object.keys(excelData[0]);
+  const find = (terms) => keys.find(k => terms.some(t => k.toLowerCase().includes(t)));
+  const findFin = (terms) => { for (const t of terms) { const c = keys.find(k => k.toLowerCase().includes(t)); if (c) return c; } return null; };
+
+  excelMeta.ciuuCol        = find(['ciiu']) || find(['actividad economica','cod actividad']);
+  excelMeta.saludCol       = find(['salud']);
+  excelMeta.atractivoCol   = find(['atractiv']);
+  excelMeta.prospectivaCol = find(['prospect']);
+
+  // Columna ZONA primero (nombre exacto en este Excel)
+  excelMeta.regionCol = find(['zona']) || find(['regi','macro','territ']) || find(['departamento','dpto']) || find(['ciudad','municipio']);
+  if (!excelMeta.regionCol) {
+    const rv = ['caribe','andina','pacif','orinoq','amazon','central','oriental','bogota'];
+    excelMeta.regionCol = keys.find(k =>
+      excelData.slice(0,50).some(r => rv.some(v => (r[k]||'').toString().toLowerCase().includes(v)))
+    ) || null;
+  }
+
+  // DuPont: 'Estados Financieros y Dupont' o cualquier hoja con 'dupont'
+  dupontSheetName = wb.SheetNames.find(n =>
+    n.toLowerCase().replace(/[\s\-_]/g,'').includes('dupont') ||
+    n.toLowerCase().includes('estados financieros')
+  ) || null;
+  dupontData = dupontSheetName
+    ? XLSX.utils.sheet_to_json(wb.Sheets[dupontSheetName], { defval:'', header:1 })
+    : null;
+
+  // Razones financieras: hoja 'Solucion Razones'
+  const razonesSheet = wb.SheetNames.find(n => n.toLowerCase().includes('razon') || n.toLowerCase().includes('raz')) || null;
+  razonesData = razonesSheet
+    ? XLSX.utils.sheet_to_json(wb.Sheets[razonesSheet], { defval:'', header:1 })
+    : null;
+
+  // Columnas financieras (nombres reales de este Excel)
+  financialCols.activos    = findFin(['total de activos','activo total','activos total','activo']);
+  financialCols.pasivos    = findFin(['total pasivos','pasivo total','pasivos total','pasivo']);
+  financialCols.patrimonio = findFin(['patrimonio total','total patrimonio','patrimonio']);
+  financialCols.ingresos   = findFin(['ingresos de actividades ordinarias','ingresos de actividades','ingreso de actividades','ventas neta','ventas','ingreso']);
+  financialCols.costos     = findFin(['costo de ventas','costo de venta','costo venta']);
+  financialCols.utilidad   = findFin(['ganancia (p','ganancia perdida','utilidad neta','resultado del ejercicio','ganancia']);
+
+  // Regiones únicas
+  if (excelMeta.regionCol) {
+    const rSet = new Set();
+    excelData.forEach(r => { const v = (r[excelMeta.regionCol]||'').toString().trim(); if (v) rSet.add(v); });
+    excelRegions = [...rSet].sort();
+  } else { excelRegions = []; }
+  empresasRegionFilter = '';
+  empresasCiiuFilter   = '';
+
+  buildExcelScores();
+  updateExcelPanel(filename);
+  saveExcelToStorage(filename);
+  showStatus('success', `<i class="ti ti-check"></i> ${filename} · ${excelData.length.toLocaleString('es-CO')} empresas · ${excelMeta.sheets.length} hojas`);
+  update();
 }
 
 function buildExcelScores() {
@@ -1071,6 +1078,75 @@ function renderDupontSection(rows, index) {
         </table>
       </div>
     </div>`;
+}
+
+// ── Razones financieras pre-calculadas ────────────────────────────────────
+function renderRazonesSection() {
+  if (!razonesData || razonesData.length === 0) return '';
+  const sections = [];
+  let cur = null;
+  let years = [];
+
+  razonesData.forEach(row => {
+    if (!row) return;
+    const first = String(row[0]||'').trim();
+    const rest  = row.slice(1);
+    const hasNums = rest.some(v => typeof v === 'number' || (v && !isNaN(parseFloat(v))));
+    const isYearRow = !first && rest.some(v => String(v||'').match(/^202\d$/));
+
+    if (first && !hasNums) {
+      cur = { name: first, years: [], rows: [] };
+      sections.push(cur);
+    } else if (isYearRow && cur) {
+      cur.years = rest.filter(v => String(v||'').match(/^202\d$/)).map(String);
+    } else if (first && cur && hasNums) {
+      const vals = rest.slice(0, Math.max(cur.years.length, 5)).map(v => {
+        const n = parseFloat(String(v));
+        return isNaN(n) ? null : n;
+      });
+      cur.rows.push({ label: first.trim(), vals });
+    }
+  });
+
+  if (sections.length === 0) return '';
+
+  const fmt = (n, label) => {
+    if (n === null) return '—';
+    const lw = label.toLowerCase();
+    if (Math.abs(n) <= 3 && (lw.includes('margen') || lw.includes('roe') || lw.includes('roi') || lw.includes('razón') || lw.includes('razon') || lw.includes('endeud') || lw.includes('prueba'))) {
+      return (n * 100).toFixed(2) + '%';
+    }
+    return n.toFixed(2) + 'x';
+  };
+
+  return `
+    <div class="fin-section-title" style="margin-top:16px">
+      Razones Financieras · ${sections[0]?.years?.join(' · ') || '2020–2024'}
+    </div>
+    ${sections.map(sec => `
+      <div class="razones-cat-label">${escHtml(sec.name)}</div>
+      <div class="fin-kpi-grid" style="margin-bottom:10px">
+        ${sec.rows.map(row => {
+          const last = row.vals[row.vals.length - 1];
+          const lastYear = sec.years[sec.years.length - 1] || '2024';
+          const display = fmt(last, row.label);
+          const trend = row.vals.length >= 2
+            ? row.vals.slice(-5).filter(v=>v!==null).map((v,i,a) => i===0?'':((v-a[i-1])/Math.abs(a[i-1]||1)*100)).filter((_,i)=>i>0)
+            : [];
+          const avgTrend = trend.length ? trend.reduce((a,b)=>a+b,0)/trend.length : 0;
+          const trendIcon = trend.length === 0 ? '' : avgTrend > 1 ? '▲' : avgTrend < -1 ? '▼' : '→';
+          const trendColor = trendIcon === '▲' ? '#1D9E75' : trendIcon === '▼' ? '#E24B4A' : '#9b9a95';
+          const history = sec.years.map((y,i) => row.vals[i] !== null ? `${y}: ${fmt(row.vals[i], row.label)}` : '').filter(Boolean).join(' · ');
+          return `<div class="fin-kpi-card">
+            <div class="fin-kpi-body">
+              <div class="fin-kpi-label">${escHtml(row.label)} (${lastYear})</div>
+              <div class="fin-kpi-value" style="color:#378ADD">${display} <span style="font-size:12px;color:${trendColor}">${trendIcon}</span></div>
+              <div class="fin-kpi-sim">${history}</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `).join('')}`;
 }
 
 // ── Extractor de índices DuPont ────────────────────────────────────────────
@@ -1307,6 +1383,8 @@ function renderFinanciero() {
           </tbody>
         </table>
       </div>` : ''}`;
+
+  wrap.innerHTML += renderRazonesSection();
 
   const sIng = wrap.querySelector('#fin-s-ing');
   const sCos = wrap.querySelector('#fin-s-cos');

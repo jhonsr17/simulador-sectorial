@@ -771,6 +771,20 @@ tr:hover td { background: var(--bg-subtle); }
   color: var(--text);
 }
 
+/* ── Razones financieras ── */
+.razones-cat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 10px 0 6px;
+  padding: 4px 8px;
+  background: var(--accent-light);
+  border-radius: 4px;
+  display: inline-block;
+}
+
 /* ── DuPont ── */
 .dupont-info {
   font-size: 11px;
